@@ -1,0 +1,47 @@
+name: GitHub Classroom Workflow
+
+on: [push]
+
+permissions:
+  checks: write
+  actions: read
+  contents: read
+
+jobs:
+  build:
+    name: Autograding
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Checkout tests
+      uses: actions/checkout@v4
+      with:
+        repository: IR1-2025-TA/hidden-tests-assignment3
+        ref: main
+        token: ${{ secrets.AHT }}
+        path: tests
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      id: cache
+      with:
+        path: ${{ env.pythonLocation }}
+        key: python-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+    - name: Install pip dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: pip install -r requirements.txt
+
+    - uses: actions/cache/save@v3
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: ${{ env.pythonLocation }}
+        key: python-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+    - name: Autograding
+      uses: education/autograding@v1

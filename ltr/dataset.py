@@ -332,7 +332,7 @@ class FeatureExtraction:
         doc_len = self.documents.dl[docid]
         self.features[qid][docid]["stream_length"] = doc_len
     
-    def compute_idf(self, qid, docid, **args):
+    def compute_idf(self, qid, docid, smoothing=0.5, **args):
         """Sum of inverse document frequencies for query terms found in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = set(self.documents.index[docid])
@@ -343,8 +343,7 @@ class FeatureExtraction:
                 # Calculate IDF: log(N/df) where df is document frequency
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 idf_sum += idf
         
         self.features[qid][docid]["idf"] = idf_sum
@@ -422,7 +421,7 @@ class FeatureExtraction:
         var_norm_tf = np.var(norm_tfs) if len(norm_tfs) > 1 else 0.0
         self.features[qid][docid]["var_stream_length_normalized_tf"] = var_norm_tf
     
-    def compute_sum_tfidf(self, qid, docid, **args):
+    def compute_sum_tfidf(self, qid, docid, smoothing=0.5, **args):
         """Sum of TF-IDF scores for query terms in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = self.documents.index[docid]
@@ -437,14 +436,13 @@ class FeatureExtraction:
                 # Calculate IDF
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 
                 sum_tfidf += tf * idf
         
         self.features[qid][docid]["sum_tfidf"] = sum_tfidf
     
-    def compute_min_tfidf(self, qid, docid, **args):
+    def compute_min_tfidf(self, qid, docid, smoothing=0.5, **args):
         """Minimum TF-IDF score among query terms in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = self.documents.index[docid]
@@ -459,15 +457,15 @@ class FeatureExtraction:
                 # Calculate IDF
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 
                 tfidf_scores.append(tf * idf)
         
         min_tfidf = min(tfidf_scores) if tfidf_scores else 0.0
         self.features[qid][docid]["min_tfidf"] = min_tfidf
     
-    def compute_max_tfidf(self, qid, docid, **args):
+    def compute_max_tfidf(self, qid, docid, smoothing=0.5, **args):
         """Maximum TF-IDF score among query terms in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = self.documents.index[docid]
@@ -482,15 +480,14 @@ class FeatureExtraction:
                 # Calculate IDF
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 
                 tfidf_scores.append(tf * idf)
         
         max_tfidf = max(tfidf_scores) if tfidf_scores else 0.0
         self.features[qid][docid]["max_tfidf"] = max_tfidf
     
-    def compute_mean_tfidf(self, qid, docid, **args):
+    def compute_mean_tfidf(self, qid, docid, smoothing=0.5, **args):
         """Mean TF-IDF score of query terms in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = self.documents.index[docid]
@@ -505,15 +502,15 @@ class FeatureExtraction:
                 # Calculate IDF
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+                
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 
                 tfidf_scores.append(tf * idf)
         
         mean_tfidf = np.mean(tfidf_scores) if tfidf_scores else 0.0
         self.features[qid][docid]["mean_tfidf"] = mean_tfidf
     
-    def compute_var_tfidf(self, qid, docid, **args):
+    def compute_var_tfidf(self, qid, docid, smoothing=0.5, **args):
         """Variance of TF-IDF scores of query terms in the document."""
         query_terms = self.queries.qmap[qid]
         doc_terms = self.documents.index[docid]
@@ -528,8 +525,7 @@ class FeatureExtraction:
                 # Calculate IDF
                 df = sum(1 for doc_contents in self.documents.index.values() 
                           if term in doc_contents)
-                df = max(1, df)  # Avoid division by zero
-                idf = np.log(self.documents.num_docs / df)
+                idf = np.log(self.documents.num_docs / (df + smoothing))
                 
                 tfidf_scores.append(tf * idf)
         

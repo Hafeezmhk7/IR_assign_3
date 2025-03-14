@@ -106,9 +106,14 @@ class Documents:
         self.num_docs = 0  # Number of all documents
 
     def process_documents(self, doc_path: str):
-        """_summary_
-        Preprocess the collection file(document information). Your implementation should calculate
-        all of the class attributes in the __init__ function.
+        """Preprocess the document collection.
+        Preprocess the collection file (document information). Calculates and updates
+        all of the class attributes in the __init__ function:
+        - index: terms for each document
+        - dl: document lengths
+        - df: document frequencies (how many documents contain each term)
+        - num_docs: total number of documents
+        
         Parameters
         ----------
         doc_path : str
@@ -118,7 +123,25 @@ class Documents:
             for line in tqdm(doc_file, desc="Processing documents"):
                 
                 # BEGIN SOLUTION
-                pass
+                split = line.strip().split("\t")
+                doc_id, doc_text = split[0], split[1]
+                
+                # Preprocess the document text (tokenize, stem, remove stopwords)
+                doc_terms = self.preprocesser.pipeline(doc_text)
+                
+                # Store the preprocessed terms in the index
+                self.index[doc_id] = doc_terms
+                
+                # Update document length
+                self.dl[doc_id] = len(doc_terms)
+                
+                # Increment document count
+                self.num_docs += 1
+                
+                # Update document frequencies for each unique term in this document
+                # df stores how many documents contain each term
+                for term in set(doc_terms):
+                    self.df[term] = self.df[term] + 1
                 # END SOLUTION
 
 
@@ -180,29 +203,339 @@ class FeatureExtraction:
         self.features = features
         self.documents = documents
         self.queries = queries
+        self.avg_doc_len = sum(self.documents.dl.values()) / len(self.documents.dl) if len(self.documents.dl) > 0 else 0
 
     # TODO Implement this function
-    def extract(self, qid: int, docid: int, **args) -> dict:
-        """_summary_
+    def extract(self, qid: str, docid: str, **args) -> dict:
+        """Extract features for a query-document pair.
         For each query and document, extract the features requested and store them
         in self.features attribute.
 
         Parameters
         ----------
-        qid : int
-            _description_
-        docid : int
-            _description_
+        qid : str
+            Query ID
+        docid : str
+            Document ID
 
         Returns
         -------
         dict
-            _description_
+            Dictionary of features
         """
 
-        # BEGIN SOLITION    
+        # BEGIN SOLUTION
+        # Initialize features for this query-doc pair if not already present
+        if qid not in self.features:
+            self.features[qid] = {}
+        if docid not in self.features[qid]:
+            self.features[qid][docid] = {}
+        
+        # Extract all features
+        for feature in __feature_list__:
+            match feature:
+                case FeatureList.f1:
+                    self.compute_bm25(qid, docid, **args)
+                case FeatureList.f2:
+                    self.compute_query_term_coverage(qid, docid, **args)
+                case FeatureList.f3:
+                    self.compute_query_term_coverage_ratio(qid, docid, **args)
+                case FeatureList.f4:
+                    self.compute_stream_length(qid, docid, **args)
+                case FeatureList.f5:
+                    self.compute_idf(qid, docid, **args)
+                case FeatureList.f6:
+                    self.compute_sum_stream_length_normalized_tf(qid, docid, **args)
+                case FeatureList.f7:
+                    self.compute_min_stream_length_normalized_tf(qid, docid, **args)
+                case FeatureList.f8:
+                    self.compute_max_stream_length_normalized_tf(qid, docid, **args)
+                case FeatureList.f9:
+                    self.compute_mean_stream_length_normalized_tf(qid, docid, **args)
+                case FeatureList.f10:
+                    self.compute_var_stream_length_normalized_tf(qid, docid, **args)
+                case FeatureList.f11:
+                    self.compute_sum_tfidf(qid, docid, **args)
+                case FeatureList.f12:
+                    self.compute_min_tfidf(qid, docid, **args)
+                case FeatureList.f13:
+                    self.compute_max_tfidf(qid, docid, **args)
+                case FeatureList.f14:
+                    self.compute_mean_tfidf(qid, docid, **args)
+                case FeatureList.f15:
+                    self.compute_var_tfidf(qid, docid, **args)
+                case _:
+                    print(f"Feature {feature} not found")
+                    pass
+        
+        return self.features[qid][docid]
+    
+    def compute_bm25(self, qid, docid, k1=1.5, b=0.75, **args):
+        """Compute BM25 score for a query-document pair.
+        BM25 formula: sum_t( IDF(t) * ((k1 + 1) * tf) / (k1 * (1 - b + b * (dl/avgdl)) + tf) )
+        where t is each term in the query, tf is term frequency in the document,
+        dl is document length, and avgdl is average document length.
+        """
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = self.documents.dl[docid]
+        
+        # Skip if document not found
+        if not doc_terms:
+            self.features[qid][docid]["bm25"] = 0.0
+            return
+        
+        bm25_score = 0.0
+        doc_term_counts = Counter(doc_terms)
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF: log(N/df) where df is document frequency
+                # We'll use a simple approximation here
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                # BM25 formula
+                numerator = (k1 + 1) * tf
+                denominator = k1 * (1 - b + b * (doc_len / self.avg_doc_len)) + tf
+                bm25_score += idf * (numerator / denominator)
+        
+        self.features[qid][docid]["bm25"] = bm25_score
+    
+    def compute_query_term_coverage(self, qid, docid, **args):
+        """Number of query terms found in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = set(self.documents.index[docid])
+        
+        coverage = sum(1 for term in query_terms if term in doc_terms)
+        self.features[qid][docid]["query_term_coverage"] = coverage
+    
+    def compute_query_term_coverage_ratio(self, qid, docid, **args):
+        """Ratio of query terms in the document to the total number of query terms."""
+        query_terms = self.queries.qmap[qid]
+        if not query_terms:
+            self.features[qid][docid]["query_term_coverage_ratio"] = 0.0
+            return
+            
+        doc_terms = set(self.documents.index[docid])
+        
+        coverage = sum(1 for term in query_terms if term in doc_terms)
+        ratio = coverage / len(query_terms)
+        self.features[qid][docid]["query_term_coverage_ratio"] = ratio
+    
+    def compute_stream_length(self, qid, docid, **args):
+        """Length of the document (number of terms)."""
+        doc_len = self.documents.dl[docid]
+        self.features[qid][docid]["stream_length"] = doc_len
+    
+    def compute_idf(self, qid, docid, **args):
+        """Sum of inverse document frequencies for query terms found in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = set(self.documents.index[docid])
+        
+        idf_sum = 0.0
+        for term in query_terms:
+            if term in doc_terms:
+                # Calculate IDF: log(N/df) where df is document frequency
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                idf_sum += idf
+        
+        self.features[qid][docid]["idf"] = idf_sum
+    
+    def compute_sum_stream_length_normalized_tf(self, qid, docid, **args):
+        """Sum of term frequencies normalized by document length."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = max(1, self.documents.dl[docid])  # Avoid division by zero
+        
+        doc_term_counts = Counter(doc_terms)
+        
+        sum_norm_tf = sum(doc_term_counts[term] / doc_len 
+                           for term in query_terms if term in doc_term_counts)
+        
+        self.features[qid][docid]["sum_stream_length_normalized_tf"] = sum_norm_tf
+    
+    def compute_min_stream_length_normalized_tf(self, qid, docid, **args):
+        """Minimum normalized term frequency among query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = max(1, self.documents.dl[docid])  # Avoid division by zero
+        
+        doc_term_counts = Counter(doc_terms)
+        
+        # Get normalized tf values for query terms found in document
+        norm_tfs = [doc_term_counts[term] / doc_len 
+                     for term in query_terms if term in doc_term_counts]
+        
+        min_norm_tf = min(norm_tfs) if norm_tfs else 0.0
+        self.features[qid][docid]["min_stream_length_normalized_tf"] = min_norm_tf
+    
+    def compute_max_stream_length_normalized_tf(self, qid, docid, **args):
+        """Maximum normalized term frequency among query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = max(1, self.documents.dl[docid])  # Avoid division by zero
+        
+        doc_term_counts = Counter(doc_terms)
+        
+        # Get normalized tf values for query terms found in document
+        norm_tfs = [doc_term_counts[term] / doc_len 
+                     for term in query_terms if term in doc_term_counts]
+        
+        max_norm_tf = max(norm_tfs) if norm_tfs else 0.0
+        self.features[qid][docid]["max_stream_length_normalized_tf"] = max_norm_tf
+    
+    def compute_mean_stream_length_normalized_tf(self, qid, docid, **args):
+        """Mean normalized term frequency of query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = max(1, self.documents.dl[docid])  # Avoid division by zero
+        
+        doc_term_counts = Counter(doc_terms)
+        
+        # Get normalized tf values for query terms found in document
+        norm_tfs = [doc_term_counts[term] / doc_len 
+                     for term in query_terms if term in doc_term_counts]
+        
+        mean_norm_tf = np.mean(norm_tfs) if norm_tfs else 0.0
+        self.features[qid][docid]["mean_stream_length_normalized_tf"] = mean_norm_tf
+    
+    def compute_var_stream_length_normalized_tf(self, qid, docid, **args):
+        """Variance of normalized term frequencies of query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        doc_len = max(1, self.documents.dl[docid])  # Avoid division by zero
+        
+        doc_term_counts = Counter(doc_terms)
+        
+        # Get normalized tf values for query terms found in document
+        norm_tfs = [doc_term_counts[term] / doc_len 
+                     for term in query_terms if term in doc_term_counts]
+        
+        var_norm_tf = np.var(norm_tfs) if len(norm_tfs) > 1 else 0.0
+        self.features[qid][docid]["var_stream_length_normalized_tf"] = var_norm_tf
+    
+    def compute_sum_tfidf(self, qid, docid, **args):
+        """Sum of TF-IDF scores for query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        
+        doc_term_counts = Counter(doc_terms)
+        sum_tfidf = 0.0
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                sum_tfidf += tf * idf
+        
+        self.features[qid][docid]["sum_tfidf"] = sum_tfidf
+    
+    def compute_min_tfidf(self, qid, docid, **args):
+        """Minimum TF-IDF score among query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        
+        doc_term_counts = Counter(doc_terms)
+        tfidf_scores = []
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                tfidf_scores.append(tf * idf)
+        
+        min_tfidf = min(tfidf_scores) if tfidf_scores else 0.0
+        self.features[qid][docid]["min_tfidf"] = min_tfidf
+    
+    def compute_max_tfidf(self, qid, docid, **args):
+        """Maximum TF-IDF score among query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        
+        doc_term_counts = Counter(doc_terms)
+        tfidf_scores = []
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                tfidf_scores.append(tf * idf)
+        
+        max_tfidf = max(tfidf_scores) if tfidf_scores else 0.0
+        self.features[qid][docid]["max_tfidf"] = max_tfidf
+    
+    def compute_mean_tfidf(self, qid, docid, **args):
+        """Mean TF-IDF score of query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        
+        doc_term_counts = Counter(doc_terms)
+        tfidf_scores = []
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                tfidf_scores.append(tf * idf)
+        
+        mean_tfidf = np.mean(tfidf_scores) if tfidf_scores else 0.0
+        self.features[qid][docid]["mean_tfidf"] = mean_tfidf
+    
+    def compute_var_tfidf(self, qid, docid, **args):
+        """Variance of TF-IDF scores of query terms in the document."""
+        query_terms = self.queries.qmap[qid]
+        doc_terms = self.documents.index[docid]
+        
+        doc_term_counts = Counter(doc_terms)
+        tfidf_scores = []
+        
+        for term in query_terms:
+            if term in doc_term_counts:
+                tf = doc_term_counts[term]
+                
+                # Calculate IDF
+                df = sum(1 for doc_contents in self.documents.index.values() 
+                          if term in doc_contents)
+                df = max(1, df)  # Avoid division by zero
+                idf = np.log(self.documents.num_docs / df)
+                
+                tfidf_scores.append(tf * idf)
+        
+        var_tfidf = np.var(tfidf_scores) if len(tfidf_scores) > 1 else 0.0
+        self.features[qid][docid]["var_tfidf"] = var_tfidf
         # END SOLUTION
-
 
 class GenerateFeatures:
     def __init__(self, feature_extractor: FeatureExtraction) -> None:
@@ -501,10 +834,45 @@ class ClickLTRData(Dataset):
         positions = self.logging_policy.query_positions(q_i)
 
         ### BEGIN SOLUTION
-
-        # Select the positions where the position is less than 20 and
-        # Get the features, clicks and positions
-
+        # Select only positions less than 20 (focusing on top results)
+        valid_indices = [i for i, pos in enumerate(positions) if pos < 20]
+        
+        # Filter features, clicks, and positions based on valid indices
+        features = self.split.query_feat(q_i)
+        filtered_features = [features[positions[i]] for i in valid_indices]
+        filtered_clicks = [clicks[i] for i in valid_indices]
+        filtered_positions = [positions[i] for i in valid_indices]
+        
+        # Convert to tensors
+        tensor_features = torch.FloatTensor(filtered_features)
+        tensor_clicks = torch.FloatTensor(filtered_clicks)
+        tensor_positions = torch.LongTensor(filtered_positions)
         ### END SOLUTION
 
         return tensor_features, tensor_clicks, tensor_positions
+
+import pickle
+
+if __name__ == "__main__":
+    QUERIES_PATH = "./data/queries.tsv"
+    STOP_WORDS_PATH = "./data/common_words"
+    COLLECTION_PATH = "./data/collection.tsv"
+    DOC_JSON = "./datasets/doc.pickle"
+
+    print("Starting Preprocessing...")
+
+    prp = Preprocess(STOP_WORDS_PATH)
+
+    queries = Queries(prp)
+    queries.preprocess_queries(QUERIES_PATH)
+
+    print("Preprocessing Queries Complete")
+
+    documents = Documents(prp)
+
+    print("Preprocessing Documents...")
+
+    documents.process_documents(COLLECTION_PATH)
+
+    with open(DOC_JSON, "wb") as file:
+        pickle.dump(documents, file)

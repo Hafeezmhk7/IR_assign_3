@@ -106,9 +106,14 @@ class Documents:
         self.num_docs = 0  # Number of all documents
 
     def process_documents(self, doc_path: str):
-        """_summary_
-        Preprocess the collection file(document information). Your implementation should calculate
-        all of the class attributes in the __init__ function.
+        """Preprocess the document collection.
+        Preprocess the collection file (document information). Calculates and updates
+        all of the class attributes in the __init__ function:
+        - index: terms for each document
+        - dl: document lengths
+        - df: document frequencies (how many documents contain each term)
+        - num_docs: total number of documents
+        
         Parameters
         ----------
         doc_path : str
@@ -201,19 +206,20 @@ class FeatureExtraction:
         self.features = features
         self.documents = documents
         self.queries = queries
+        self.avg_doc_len = sum(self.documents.dl.values()) / len(self.documents.dl) if len(self.documents.dl) > 0 else 0
 
     # TODO Implement this function
-    def extract(self, qid: int, docid: int, **args) -> dict:
-        """_summary_
+    def extract(self, qid: str, docid: str, **args) -> dict:
+        """Extract features for a query-document pair.
         For each query and document, extract the features requested and store them
         in self.features attribute.
 
         Parameters
         ----------
-        qid : int
-            _description_
-        docid : int
-            _description_
+        qid : str
+            Query ID
+        docid : str
+            Document ID
 
         Returns
         -------
@@ -311,7 +317,6 @@ class FeatureExtraction:
         
         return features
         # END SOLUTION
-
 
 class GenerateFeatures:
     def __init__(self, feature_extractor: FeatureExtraction) -> None:
@@ -634,3 +639,29 @@ class ClickLTRData(Dataset):
         ### END SOLUTION
 
         return tensor_features, tensor_clicks, tensor_positions
+
+import pickle
+
+if __name__ == "__main__":
+    QUERIES_PATH = "./data/queries.tsv"
+    STOP_WORDS_PATH = "./data/common_words"
+    COLLECTION_PATH = "./data/collection.tsv"
+    DOC_JSON = "./datasets/doc.pickle"
+
+    print("Starting Preprocessing...")
+
+    prp = Preprocess(STOP_WORDS_PATH)
+
+    queries = Queries(prp)
+    queries.preprocess_queries(QUERIES_PATH)
+
+    print("Preprocessing Queries Complete")
+
+    documents = Documents(prp)
+
+    print("Preprocessing Documents...")
+
+    documents.process_documents(COLLECTION_PATH)
+
+    with open(DOC_JSON, "wb") as file:
+        pickle.dump(documents, file)

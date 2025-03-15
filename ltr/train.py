@@ -419,6 +419,7 @@ def logit_to_prob(logit):
     """
 
     ### BEGIN SOLUTION
+    return torch.sigmoid(logit)
     ### END SOLUTION
 
 

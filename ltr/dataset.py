@@ -118,7 +118,28 @@ class Documents:
             for line in tqdm(doc_file, desc="Processing documents"):
                 
                 # BEGIN SOLUTION
-                pass
+                # Parse the line - get doc_id and doc_text
+                doc_id, doc_text = line.strip().split("\t")
+                
+                # Preprocess the document text
+                tokens = self.preprocesser.pipeline(doc_text)
+                
+                # Update document length
+                self.dl[doc_id] = len(tokens)
+                
+                # Update the document counter
+                self.num_docs += 1
+                
+                # Build inverted index and update document frequencies
+                term_counts = Counter(tokens)
+                for term, count in term_counts.items():
+                    # Update inverted index - for each term, record its count in this document
+                    self.index[term][doc_id] = count
+                    
+                    # Update document frequency - how many documents contain this term
+                    self.df[term] += 1
+
+
                 # END SOLUTION
 
 
@@ -200,7 +221,95 @@ class FeatureExtraction:
             _description_
         """
 
-        # BEGIN SOLITION    
+        # BEGIN SOLITION  
+        # Get query terms
+        query_terms = self.queries.qmap[qid]
+        
+        # Initialize features dictionary
+        features = {}
+        
+        # Get document length - with safety check
+        doc_length = self.documents.dl.get(docid, 0)
+        
+        # Calculate average document length for BM25 - with safety check
+        total_length = sum(self.documents.dl.values()) if self.documents.dl else 0
+        avg_doc_length = total_length / max(1, self.documents.num_docs)
+        
+        # Parameters
+        k1 = args.get('k1', 1.5)
+        b = args.get('b', 0.75)
+        smoothing = args.get('idf_smoothing', 0.5)
+        
+        # Track values for various features
+        bm25_score = 0
+        query_term_count = 0
+        stream_norm_tf_values = []
+        tfidf_values = []
+        idf_sum = 0
+        
+        # For each term in the query
+        for term in query_terms:
+            # Calculate IDF for this term (for all terms, not just those in the document)
+            doc_freq = self.documents.df.get(term, 0)
+            idf = np.log((self.documents.num_docs + 1) / (doc_freq + smoothing))
+            idf_sum += idf
+            
+            # If term exists in document
+            if term in self.documents.index and docid in self.documents.index[term]:
+                # Get term frequency in document
+                tf = self.documents.index[term][docid]
+                
+                # Count query terms appearing in document
+                query_term_count += 1
+                
+                # BM25 calculation for this term
+                tf_normalized = ((k1 + 1) * tf) / (k1 * (1 - b + b * doc_length / avg_doc_length) + tf)
+                bm25_score += tf_normalized * idf
+                
+                # Store normalized tf (tf/doc_length)
+                norm_tf = tf / doc_length
+                stream_norm_tf_values.append(norm_tf)
+                
+                # Store tf-idf for this term
+                tfidf = tf * idf
+                tfidf_values.append(tfidf)
+        
+        # Set features
+        features["bm25"] = bm25_score
+        features["query_term_coverage"] = query_term_count
+        features["query_term_coverage_ratio"] = query_term_count / len(query_terms) if query_terms else 0
+        features["stream_length"] = doc_length
+        features["idf"] = idf_sum
+        
+        # Set stream_length_normalized_tf features
+        if stream_norm_tf_values:
+            features["sum_stream_length_normalized_tf"] = sum(stream_norm_tf_values)
+            features["min_stream_length_normalized_tf"] = min(stream_norm_tf_values)
+            features["max_stream_length_normalized_tf"] = max(stream_norm_tf_values)
+            features["mean_stream_length_normalized_tf"] = np.mean(stream_norm_tf_values)
+            features["var_stream_length_normalized_tf"] = np.var(stream_norm_tf_values)
+        else:
+            features["sum_stream_length_normalized_tf"] = 0
+            features["min_stream_length_normalized_tf"] = 0
+            features["max_stream_length_normalized_tf"] = 0
+            features["mean_stream_length_normalized_tf"] = 0
+            features["var_stream_length_normalized_tf"] = 0
+        
+        # Set tfidf features
+        if tfidf_values:
+            features["sum_tfidf"] = sum(tfidf_values)
+            features["min_tfidf"] = min(tfidf_values)
+            features["max_tfidf"] = max(tfidf_values)
+            features["mean_tfidf"] = np.mean(tfidf_values)
+            features["var_tfidf"] = np.var(tfidf_values)
+        else:
+            features["sum_tfidf"] = 0
+            features["min_tfidf"] = 0
+            features["max_tfidf"] = 0
+            features["mean_tfidf"] = 0
+            features["var_tfidf"] = 0
+        
+        return features
         # END SOLUTION
 
 
@@ -504,6 +613,23 @@ class ClickLTRData(Dataset):
 
         # Select the positions where the position is less than 20 and
         # Get the features, clicks and positions
+        # Get clicks and positions for the query
+        clicks = self.logging_policy.gather_clicks(q_i)
+        positions = self.logging_policy.query_positions(q_i)
+
+        # Filter for positions less than 20 (topk items)
+        mask = positions < 20
+        filtered_positions = positions[mask]
+        filtered_clicks = clicks[mask]
+
+        # Get features for the query
+        features = self.split.query_feat(q_i)
+        filtered_features = features[mask]
+
+        # Convert to PyTorch tensors
+        tensor_features = torch.FloatTensor(filtered_features)
+        tensor_clicks = torch.FloatTensor(filtered_clicks)
+        tensor_positions = torch.LongTensor(filtered_positions)
 
         ### END SOLUTION
 

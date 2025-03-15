@@ -26,6 +26,12 @@ def pointwise_loss(output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     assert output.size(1) == 1
 
     ## BEGIN SOLUTION
+    # Reshape output to match target's dimensions
+    output = output.squeeze()
+    
+    # Calculate mean squared error
+    loss = torch.mean((output - target) ** 2)
+    return loss
     ## END SOLUTION
 
 
@@ -51,6 +57,43 @@ def pairwise_loss(scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         return None
 
     ## BEGIN SOLUTION
+    # Flatten scores for easier manipulation
+    scores = scores.view(-1)
+    
+    # Initialize loss
+    total_loss = torch.tensor(0.0, requires_grad=True)
+    pair_count = 0
+    
+    # Set sigma parameter
+    sigma = 1.0
+
+    # Compute loss for all document pairs
+    for i in range(len(scores)):
+        for j in range(len(scores)):
+            if i != j:  # Skip comparing document with itself
+                # Determine the target relationship S_ij
+                if labels[i] > labels[j]:
+                    S_ij = 1.0  # Doc i should be ranked higher
+                elif labels[i] < labels[j]:
+                    S_ij = -1.0  # Doc j should be ranked higher
+                else:
+                    S_ij = 0.0  # Equal relevance
+                
+                # Calculate score difference
+                score_diff = scores[i] - scores[j]
+                
+                # Compute loss using the provided formula
+                pair_loss = 0.5 * (1 - S_ij) * sigma * score_diff + torch.log(1 + torch.exp(-sigma * score_diff))
+                
+                # Add to total loss
+                total_loss = total_loss + pair_loss
+                pair_count += 1
+    
+    # Return average loss
+    if pair_count > 0:
+        return total_loss / pair_count
+    else:
+        return None
     ## END SOLUTION
 
 
@@ -72,6 +115,40 @@ def compute_lambda_i(scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor
     """
 
     ## BEGIN SOLUTION
+    # Ensure scores has the right shape
+    original_shape = scores.shape
+    scores = scores.squeeze()
+    
+    # Get number of documents
+    n_docs = scores.shape[0]
+    
+    # Initialize lambda values
+    lambda_i = torch.zeros_like(scores)
+    
+    # Set sigma parameter
+    sigma = 1.0
+
+    # Calculate lambda values for each document pair
+    for i in range(n_docs):
+        for j in range(n_docs):
+            if i != j:  # Skip comparing document with itself
+                # Determine the target relationship S_ij
+                if labels[i] > labels[j]:
+                    S_ij = 1.0  # Doc i should be ranked higher
+                elif labels[i] < labels[j]:
+                    S_ij = -1.0  # Doc j should be ranked higher
+                else:
+                    S_ij = 0.0  # Equal relevance
+                
+                # Calculate lambda_ij using the provided formula
+                exp_term = 1.0 / (1.0 + torch.exp(sigma * (scores[i] - scores[j])))
+                lambda_ij = sigma * (0.5 * (1 - S_ij) - exp_term)
+                
+                # Add to the total lambda for document i
+                lambda_i[i] += lambda_ij
+    
+    # Reshape lambda values to match original scores shape
+    return lambda_i.view(*original_shape)
     ## END SOLUTION
 
 
@@ -115,6 +192,79 @@ def listwise_loss(scores: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """
     
     ## BEGIN SOLUTION
+    # Ensure scores has the right shape
+    original_shape = scores.shape
+    scores = scores.squeeze()
+
+    # Get number of documents
+    n_docs = scores.shape[0]
+
+    # Initialize lambda values
+    lambdas = torch.zeros_like(scores)
+
+    # Set sigma parameter
+    sigma = 1.0
+
+    # Get sorted indices based on scores (descending order)
+    _, indices = torch.sort(scores, descending=True)
+
+    # Map document indices to their positions in the ranking
+    positions = torch.zeros_like(indices)
+    for i, idx in enumerate(indices):
+        positions[idx] = i
+
+    # Calculate ideal DCG
+    ideal_labels, _ = torch.sort(labels, descending=True)
+    ideal_gains = 2**ideal_labels - 1
+    ideal_discounts = torch.log2(torch.arange(n_docs, device=labels.device) + 2.0)
+    ideal_dcg = torch.sum(ideal_gains / ideal_discounts)
+
+    # Loop through all document pairs
+    for i in range(n_docs):
+        for j in range(n_docs):
+            if i == j:
+                continue  # Skip if same document
+            
+            # Determine the target relationship
+            if labels[i] > labels[j]:
+                S_ij = 1.0  # Doc i should be ranked higher
+            elif labels[i] < labels[j]:
+                S_ij = -1.0  # Doc j should be ranked higher
+            else:
+                S_ij = 0.0  # Equal relevance
+                continue  # Skip pairs with same relevance
+            
+            # Calculate RankNet lambda (same as pairwise approach)
+            score_diff = scores[i] - scores[j]
+            exp_term = 1.0 / (1.0 + torch.exp(sigma * score_diff))
+            lambda_ij = sigma * (0.5 * (1 - S_ij) - exp_term)
+            
+            # Calculate positions for delta NDCG
+            pos_i = positions[i].item()
+            pos_j = positions[j].item()
+            
+            # Calculate the change in DCG from swapping positions
+            discount_i = 1.0 / torch.log2(torch.tensor(pos_i + 2.0, dtype=torch.float32))
+            discount_j = 1.0 / torch.log2(torch.tensor(pos_j + 2.0, dtype=torch.float32))
+            
+            gain_i = (2**labels[i] - 1)
+            gain_j = (2**labels[j] - 1)
+            
+            # Change in DCG when swapping these documents
+            delta_dcg = torch.abs((gain_i * discount_i + gain_j * discount_j) - 
+                                (gain_i * discount_j + gain_j * discount_i))
+            
+            # Normalize by ideal DCG (avoid division by zero)
+            if ideal_dcg > 0:
+                delta_ndcg = delta_dcg / ideal_dcg
+            else:
+                delta_ndcg = delta_dcg
+            
+            # Scale lambda by delta NDCG - this is the key difference from pairwise
+            lambdas[i] += lambda_ij * delta_ndcg
+
+    # Reshape lambda values to match original scores shape
+    return lambdas.view(*original_shape)
     ## END SOLUTION
 
 
@@ -166,6 +316,21 @@ def listNet_loss(output: torch.Tensor, target: torch.Tensor, grading: bool = Fal
     eps = 1e-10  # Small epsilon value for numerical stability
 
     ## BEGIN SOLUTION
+    # Reshape tensors for proper processing
+    output = output.view(-1)  # Flatten to [topk]
+    target = target.view(-1)  # Flatten to [topk]
+
+    # Apply softmax to both predictions and targets to get probability distributions
+    preds_smax = F.softmax(output, dim=0)
+    true_smax = F.softmax(target, dim=0)
+
+    # Calculate log probabilities for predictions (adding epsilon for numerical stability)
+    preds_log = torch.log(preds_smax + eps)
+
+    # Calculate cross-entropy loss: -sum(true_prob * log(pred_prob))
+    loss = -torch.sum(true_smax * preds_log)
+
+    return loss
     ## END SOLUTION
 
     if grading:
@@ -207,6 +372,34 @@ def unbiased_listNet_loss(
     stable_propensity = propensity.clip(0.01, 1)
 
     ## BEGIN SOLUTION
+    # Reshape tensors for proper processing
+    output = output.view(-1)  # Flatten to [topk]
+    target = target.view(-1)  # Flatten to [topk]
+    stable_propensity = stable_propensity.view(-1)  # Ensure propensity is flattened
+
+    # Apply softmax to predictions to get probability distribution
+    preds_smax = F.softmax(output, dim=0)
+
+    # Weight clicks by inverse propensity scores (IPS weighting)
+    weighted_clicks = target / stable_propensity
+
+    # Calculate click sum for normalization
+    click_sum = torch.sum(weighted_clicks)
+
+    # Normalize to get probability distribution (handling zero clicks case)
+    if click_sum > 0:
+        true_smax = weighted_clicks / click_sum
+    else:
+        # Use uniform distribution if no clicks
+        true_smax = torch.ones_like(output) / output.shape[0]
+
+    # Calculate log of prediction probabilities
+    preds_log = torch.log(preds_smax + eps)
+
+    # Cross-entropy loss
+    loss = -torch.sum(true_smax * preds_log)
+
+    return loss
     ## END SOLUTION
 
     if grading:

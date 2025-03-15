@@ -61,6 +61,7 @@ def evaluate_model(
         range(0, len(dataset), batch_size), desc=f"Eval ({split})", leave=False
     ):
         batch_features = dataset.features[idx : idx + batch_size, :]
+    
         with torch.no_grad():
             output = pred_fn(batch_features)
             all_scores.extend(output.squeeze().numpy().tolist())

@@ -81,6 +81,28 @@ def train_pointwise(net, params, data):
     # Step 3: Iterate over each batch of data and use the train_batch function to train the model
     # Step 4: At the end of the epoch, evaluate the model on the data using the evaluate_model function (bot train and val)
     # Step 5: Append the metrics to train_metrics_epoch and val_metrics_epoch
+    # Create DataLoader for training data
+    train_dl = DataLoader(LTRData(data, "train"), batch_size=params.batch_size, shuffle=True)
+    
+    # Loop through training epochs
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Process each batch of training data
+        for x, y in train_dl:
+            train_batch(net, x, y, loss_fn, optimizer)
+        
+        # After each epoch, evaluate model performance
+        net.eval()  # Switch to evaluation mode
+        
+        # Collect metrics on training data
+        train_metrics = evaluate_model(data, net, "train")
+        train_metrics_epoch.append(train_metrics)
+        
+        # Collect metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch, "metrics_train": train_metrics_epoch}
@@ -104,6 +126,9 @@ def train_batch_vector(net, x, y, loss_fn, optimizer):
     # Step 3: Compute the loss using the loss_fn
     # Step 4: Backward pass to compute the gradients
     # Step 5: Update the weights using the optimizer
+
+    
+
     ### END SOLUTION
 
 
@@ -144,6 +169,55 @@ def train_pairwise(net, params, data):
     # Step 6: Compute the gradients and update the weights using the optimizer
     # Step 7: At the end of the epoch, evaluate the model on the data using the evaluate_model function (both train and val)
     # Step 8: Append the metrics to train_metrics_epoch and val_metrics_epoch
+
+    # Step 1: Create a DataLoader for the training data
+    train_dl = DataLoader(
+        QueryGroupedLTRData(data, "train"),
+        batch_size=params.batch_size,  # Will be 1
+        shuffle=True,
+        collate_fn=qg_collate_fn
+    )
+
+    # Step 2: Create your Adam optimizer
+    optimizer = Adam(net.parameters(), lr=params.lr)
+
+    # Step 3: Iterate over the data for the number of epochs
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Step 4: Iterate over each batch of data and compute the scores using the forward pass of the network
+        for features_list, labels_list in train_dl:
+            features = features_list[0]  # Documents for this query
+            labels = labels_list[0]      # Relevance labels for these documents
+            
+            # Zero the gradients
+            optimizer.zero_grad()
+            
+            # Forward pass to get predicted scores
+            scores = net(features)
+            
+            # Step 5: Compute the pairwise loss using the pairwise_loss function
+            loss = pairwise_loss(scores, labels)
+            
+            # Skip this query if loss is None (happens if query has only one document)
+            if loss is None:
+                continue
+                
+            # Step 6: Compute the gradients and update the weights using the optimizer
+            loss.backward()
+            optimizer.step()
+        
+        # Step 7: At the end of the epoch, evaluate the model on the data using the evaluate_model function (both train and val)
+        net.eval()
+        
+        # Get metrics on training data
+        train_metrics = evaluate_model(data, net, "train")
+        train_metrics_epoch.append(train_metrics)
+        
+        # Get metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch, "metrics_train": train_metrics_epoch}
@@ -187,6 +261,53 @@ def train_pairwise_spedup(net, params, data):
     # Step 7: Update the weights using the optimizer
     # Step 8: At the end of the epoch, evaluate the model on the data using the evaluate_model function (both train and val)
     # Step 9: Append the metrics to train_metrics_epoch and val_metrics_epoch
+    # Step 1: Create a DataLoader for the training data
+    train_dl = DataLoader(
+        QueryGroupedLTRData(data, "train"),
+        batch_size=params.batch_size,  # Will be 1
+        shuffle=True,
+        collate_fn=qg_collate_fn
+    )
+
+    # Step 2: Create your Adam optimizer
+    optimizer = Adam(net.parameters(), lr=params.lr)
+
+    # Step 3: Iterate over the data for the number of epochs
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Step 4: Iterate over each batch of data and compute the scores
+        for features_list, labels_list in train_dl:
+            features = features_list[0]  # Extract features for the query
+            labels = labels_list[0]      # Extract labels for the query
+            
+            # Zero the gradients
+            optimizer.zero_grad()
+            
+            # Forward pass to get scores
+            scores = net(features)
+            
+            # Step 5: Compute lambda gradients directly
+            lambda_i = compute_lambda_i(scores, labels)
+            
+            # Step 6: Backward from scores using lambda gradients
+            scores.backward(lambda_i)
+            
+            # Step 7: Update the weights
+            optimizer.step()
+        
+        # Step 8: Evaluate model after each epoch
+        net.eval()
+        
+        # Get metrics on training data
+        train_metrics = evaluate_model(data, net, "train")
+        train_metrics_epoch.append(train_metrics)
+        
+        # Get metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
+    
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch, "metrics_train": train_metrics_epoch}
@@ -229,6 +350,53 @@ def train_listwise(net, params, data):
     # Step 7: Update the weights using the optimizer
     # Step 8: At the end of the epoch, evaluate the model on the data using the evaluate_model function (both train and val)
     # Step 9: Append the metrics to train_metrics_epoch and val_metrics_epoch
+
+    # Step 1: Create a DataLoader for the training data
+    train_dl = DataLoader(
+        QueryGroupedLTRData(data, "train"),
+        batch_size=params.batch_size,  # Will be 1
+        shuffle=True,
+        collate_fn=qg_collate_fn
+    )
+
+    # Step 2: Create your Adam optimizer
+    optimizer = Adam(net.parameters(), lr=params.lr)
+
+    # Step 3: Iterate over the data for the number of epochs
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Step 4: Iterate over each batch of data and compute the scores
+        for features_list, labels_list in train_dl:
+            features = features_list[0]  # Documents for this query
+            labels = labels_list[0]      # Relevance labels for these documents
+            
+            # Zero the gradients
+            optimizer.zero_grad()
+            
+            # Forward pass to get scores
+            scores = net(features)
+            
+            # Step 5: Compute lambda gradient values for listwise loss
+            lambda_i = listwise_loss(scores, labels)
+            
+            # Step 6: Backward using lambda gradients
+            scores.backward(lambda_i)
+            
+            # Step 7: Update weights
+            optimizer.step()
+        
+        # Step 8: Evaluate model performance after each epoch
+        net.eval()
+        
+        # Get metrics on training data
+        train_metrics = evaluate_model(data, net, "train")
+        train_metrics_epoch.append(train_metrics)
+        
+        # Get metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch, "metrics_train": train_metrics_epoch}
@@ -281,7 +449,11 @@ def train_biased_listNet(net, params, data):
 
     assert params.batch_size == 1
 
-    logging_policy = LoggingPolicy()
+    # logging_policy = LoggingPolicy()
+    if hasattr(params, "policy_path"):
+        logging_policy = LoggingPolicy(params.policy_path)
+    else:
+        logging_policy = LoggingPolicy()
 
     ### BEGIN SOLUTION
     # Step 1: Create the train data loader
@@ -291,6 +463,46 @@ def train_biased_listNet(net, params, data):
     # Step 5: Train the model using the listNet loss
     # Step 6: Evaluate on the validation set every epoch
     # Step 7: Store the metrics in val_metrics_epoch
+
+
+    # Step 1: Create the train data loader
+    train_dl = DataLoader(
+        ClickLTRData(data, logging_policy),
+        batch_size=params.batch_size,  # Will be 1
+        shuffle=True
+    )
+
+    # Step 2: Create the Adam optimizer
+    optimizer = Adam(net.parameters(), lr=params.lr)
+
+    # Step 3: Iterate over the epochs and data entries
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Step 4: Process each batch of training data
+        for features, clicks, positions in train_dl:
+            # Zero the gradients
+            optimizer.zero_grad()
+            
+            # Forward pass
+            output = net(features)
+            
+            # Step 5: Calculate loss using listNet loss
+            loss = listNet_loss(output, clicks)
+            
+            # Backward pass and update weights
+            loss.backward()
+            optimizer.step()
+        
+        # Step 6: Evaluate on the validation set after each epoch
+        net.eval()
+        
+        # Get metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
+        
+        
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch}
@@ -326,7 +538,11 @@ def train_unbiased_listNet(net, params, data):
     assert params.batch_size == 1
     assert hasattr(params, "propensity")
 
-    logging_policy = LoggingPolicy()
+    # logging_policy = LoggingPolicy()
+    if hasattr(params, "policy_path"):
+        logging_policy = LoggingPolicy(params.policy_path)
+    else:
+        logging_policy = LoggingPolicy()
 
     ### BEGIN SOLUTION
     # Step 1: Create the train data loader
@@ -336,6 +552,49 @@ def train_unbiased_listNet(net, params, data):
     # Step 5: Train the model using the unbiased listNet loss
     # Step 6: Evaluate on the validation set every epoch
     # Step 7: Store the metrics in val_metrics_epoch
+
+    # Step 1: Create the train data loader
+    train_dl = DataLoader(
+        ClickLTRData(data, logging_policy),
+        batch_size=params.batch_size,  # Will be 1
+        shuffle=True
+    )
+
+    # Step 2: Create the Adam optimizer
+    optimizer = Adam(net.parameters(), lr=params.lr)
+
+    # Step 3: Iterate over the epochs and data entries
+    for epoch in range(params.epochs):
+        # Set model to training mode
+        net.train()
+        
+        # Step 4: Process each batch of training data
+        for features, clicks, positions in train_dl:
+            # Zero the gradients
+            optimizer.zero_grad()
+            
+            # Forward pass
+            output = net(features)
+            
+            # Step 5: Calculate unbiased loss using propensity scores
+            # Get propensity scores for current positions
+            propensity_scores = params.propensity[positions]
+            
+            # Use unbiased version of ListNet loss that incorporates propensity scores
+            loss = unbiased_listNet_loss(output, clicks, propensity_scores)
+            
+            # Backward pass and update weights
+            loss.backward()
+            optimizer.step()
+        
+        # Step 6: Evaluate on the validation set after each epoch
+        net.eval()
+        
+        # Get metrics on validation data
+        val_metrics = evaluate_model(data, net, "validation")
+        val_metrics_epoch.append(val_metrics)
+        
+        
     ### END SOLUTION
 
     return {"metrics_val": val_metrics_epoch}

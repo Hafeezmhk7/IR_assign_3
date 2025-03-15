@@ -1,4 +1,4 @@
-name: assignment3
+name: ir_assignment3
 channels:
   - defaults
   - pytorch

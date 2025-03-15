@@ -29,7 +29,7 @@ class LoggingPolicy:
         The noise factor added to relevance probabilities to simulate variability.
     """
 
-    def __init__(self, policy_path: str = "../data/") -> None:
+    def __init__(self, policy_path: str = "./data/") -> None:
         """
         Initializes the LoggingPolicy by loading a precomputed logging policy.
 

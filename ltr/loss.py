@@ -316,21 +316,21 @@ def listNet_loss(output: torch.Tensor, target: torch.Tensor, grading: bool = Fal
     eps = 1e-10  # Small epsilon value for numerical stability
 
     ## BEGIN SOLUTION
-    # Reshape tensors for proper processing
-    output = output.view(-1)  # Flatten to [topk]
-    target = target.view(-1)  # Flatten to [topk]
+    # Ensure output has shape [batch_size, topk]
+    if len(output.shape) == 3:  # Shape [batch_size, topk, 1]
+        output = output.squeeze(-1)  # Remove last dimension to get [batch_size, topk]
 
     # Apply softmax to both predictions and targets to get probability distributions
-    preds_smax = F.softmax(output, dim=0)
-    true_smax = F.softmax(target, dim=0)
+    preds_smax = F.softmax(output, dim=1)
+    true_smax = F.softmax(target, dim=1)
 
     # Calculate log probabilities for predictions (adding epsilon for numerical stability)
     preds_log = torch.log(preds_smax + eps)
 
     # Calculate cross-entropy loss: -sum(true_prob * log(pred_prob))
-    loss = -torch.sum(true_smax * preds_log)
+    loss = -torch.sum(true_smax * preds_log, dim=1).mean()
 
-    return loss
+    # return loss
     ## END SOLUTION
 
     if grading:

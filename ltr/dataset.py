@@ -616,12 +616,6 @@ class ClickLTRData(Dataset):
 
         ### BEGIN SOLUTION
 
-        # Select the positions where the position is less than 20 and
-        # Get the features, clicks and positions
-        # Get clicks and positions for the query
-        clicks = self.logging_policy.gather_clicks(q_i)
-        positions = self.logging_policy.query_positions(q_i)
-
         # Filter for positions less than 20 (topk items)
         mask = positions < 20
         filtered_positions = positions[mask]

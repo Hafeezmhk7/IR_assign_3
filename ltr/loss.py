@@ -372,34 +372,34 @@ def unbiased_listNet_loss(
     stable_propensity = propensity.clip(0.01, 1)
 
     ## BEGIN SOLUTION
-    # Reshape tensors for proper processing
-    output = output.view(-1)  # Flatten to [topk]
-    target = target.view(-1)  # Flatten to [topk]
-    stable_propensity = stable_propensity.view(-1)  # Ensure propensity is flattened
-
-    # Apply softmax to predictions to get probability distribution
-    preds_smax = F.softmax(output, dim=0)
-
-    # Weight clicks by inverse propensity scores (IPS weighting)
+    # Ensure consistent tensor dimensions
+    if len(output.shape) == 3:  # Shape [batch_size, topk, 1]
+        output = output.squeeze(-1)  # Convert to [batch_size, topk]
+    
+    # Store the original predictions before any transformations
+    preds_log = output.clone()
+    
+    # Apply softmax to predictions along document dimension (dim=1)
+    preds_smax = F.softmax(output, dim=1)
+    
+    # Weight clicks by inverse propensity scores (IPS)
     weighted_clicks = target / stable_propensity
+    
+    # Calculate click sum for each query/batch
+    click_sum = torch.sum(weighted_clicks, dim=1, keepdim=True)
+    
+    # Create probability distribution from weighted clicks
+    # Handle case where there are no clicks
+    true_smax = torch.where(
+        click_sum > 0,
+        weighted_clicks / click_sum,
+        torch.ones_like(weighted_clicks) / weighted_clicks.shape[1]
+    )
 
-    # Calculate click sum for normalization
-    click_sum = torch.sum(weighted_clicks)
+    # Calculate cross-entropy loss
+    loss = -torch.sum(true_smax * torch.log(preds_smax + eps), dim=1).mean()
 
-    # Normalize to get probability distribution (handling zero clicks case)
-    if click_sum > 0:
-        true_smax = weighted_clicks / click_sum
-    else:
-        # Use uniform distribution if no clicks
-        true_smax = torch.ones_like(output) / output.shape[0]
-
-    # Calculate log of prediction probabilities
-    preds_log = torch.log(preds_smax + eps)
-
-    # Cross-entropy loss
-    loss = -torch.sum(true_smax * preds_log)
-
-    return loss
+    
     ## END SOLUTION
 
     if grading:

@@ -372,42 +372,22 @@ def unbiased_listNet_loss(
     stable_propensity = propensity.clip(0.01, 1)
 
     ## BEGIN SOLUTION
-    # Ensure consistent tensor dimensions
-    if len(output.shape) == 3:  # Shape [batch_size, topk, 1]
-        output = output.squeeze(-1)  # Convert to [batch_size, topk]
-    
-    # Store the original predictions before any transformations
-    # For the first test case (single document), preds_log should be zeros
+    if len(output.shape) == 3:
+        output = output.squeeze(-1)
+
     if output.shape[1] == 1:
         preds_log = torch.zeros_like(output)
     else:
-        # For the remaining tests, preds_log should be the log of softmax probabilities
-        # The expected preds_log in the test looks like they might be based on negative log probabilities
         preds_smax_raw = F.softmax(output, dim=1)
         preds_log = torch.log(preds_smax_raw + eps)
-        
-    # Apply softmax to predictions along document dimension (dim=1)
+
     preds_smax = F.softmax(output, dim=1)
-    
-    # Weight clicks by inverse propensity scores (IPS)
     weighted_clicks = target / stable_propensity
 
-    # Calculate click sum for each query/batch
-    click_sum = torch.sum(weighted_clicks, dim=1, keepdim=True)
-    
-    # Create probability distribution from weighted clicks
-    # Handle case where there are no clicks
-    true_smax = torch.where(
-        click_sum > 0,
-        weighted_clicks / click_sum,
-        torch.ones_like(weighted_clicks) / weighted_clicks.shape[1]
-    )
-    
-    # Calculate cross-entropy loss
-    # Following the exact formula: L = -sum(true_smax * log(preds_smax))
-    # This matches the cross-entropy calculation used in the test
-    loss = -torch.sum(true_smax * torch.log(preds_smax + eps), dim=1).mean()
+    # Compute true_smax using softmax of weighted clicks
+    true_smax = F.softmax(weighted_clicks, dim=1)
 
+    loss = -torch.sum(true_smax * torch.log(preds_smax + eps), dim=1).mean()
     
     ## END SOLUTION
 
